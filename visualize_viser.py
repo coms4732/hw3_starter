@@ -37,6 +37,29 @@ def visualize_scene(npz_path: str, port: int = 8081):
     num_inliers = data['num_inliers']
     baseline = data['baseline']
 
+    # Rotate from OpenCV convention (X-right, Y-down, Z-forward) to viser's
+    # Z-up world frame, so Camera 0 appears horizontal and faces into the scene.
+    #   OpenCV +X  →  viser -X  (consistent when viewed from behind camera)
+    #   OpenCV +Y  →  viser -Z  (down maps to -up)
+    #   OpenCV +Z  →  viser -Y  (forward maps into scene, away from viewer)
+    R_fix = np.array([
+        [-1,  0,  0, 0],
+        [ 0,  0, -1, 0],
+        [ 0, -1,  0, 0],
+        [ 0,  0,  0, 1],
+    ], dtype=float)
+    camera_poses = np.array([R_fix @ T for T in camera_poses])
+    ones = np.ones((len(points_3d), 1))
+    points_3d = (R_fix @ np.hstack([points_3d, ones]).T).T[:, :3]
+
+    # Re-derive R and t from the fully-transformed Camera 2 pose so the GUI
+    # display stays consistent with the transformed scene.
+    # camera_poses[1] is c2w; convert back to w2c: R_w2c = R_c2w^T, t_w2c = -R_c2w^T @ pos
+    R_c2w_1 = camera_poses[1][:3, :3]
+    pos_1 = camera_poses[1][:3, 3]
+    R = R_c2w_1.T
+    t = -R_c2w_1.T @ pos_1
+
     # Load images if available
     img1 = data.get('img1', None)
     img2 = data.get('img2', None)
@@ -77,6 +100,18 @@ def visualize_scene(npz_path: str, port: int = 8081):
     else:
         print(f"\n🌐 Viser server running at http://localhost:{current_port}")
     print("Press Ctrl+C to exit")
+
+    # Set initial viewer position to look straight at the back of Camera 0.
+    # Camera 0 after R_fix: at origin, forward = col2 of its c2w rotation,
+    # up = negated col1 of its c2w rotation.
+    _cam0_forward = camera_poses[0][:3, 2]
+    _cam0_up = -camera_poses[0][:3, 1]
+
+    @server.on_client_connect
+    def _(client: viser.ClientHandle) -> None:
+        client.camera.position = -_cam0_forward * 3.0 + _cam0_up * 0.5
+        client.camera.look_at = np.zeros(3)
+        client.camera.up_direction = _cam0_up
 
     # Add 3D points (in Camera 0's coordinate system = world frame)
     # Normalize colors to [0, 1] range if needed
