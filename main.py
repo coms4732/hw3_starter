@@ -279,7 +279,7 @@ def main(cfg: Config):
         print(f"\nPartial results saved to: {cfg.output_dir_path}")
         return
 
-    R, t, inliers_mask, E, points_3d_ransac = result
+    R, t, inliers_mask, E = result
     inlier_correspondences = img1_img2_correspondence_pairs[inliers_mask]
     num_inliers = np.sum(inliers_mask)
     print(f"      Inliers: {num_inliers} / {num_correspondences} "
